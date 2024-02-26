@@ -9,64 +9,64 @@ import datetime
 
 app = Flask(__name__)
 
-# Generate RSA keys
+# Generate RSA key pair
 private_key = rsa.generate_private_key(
     public_exponent=65537,
     key_size=2048,
     backend=default_backend()
 )
+
 public_key = private_key.public_key()
 
-# Define key ID and expiry
-key_id = "example_key_id"
-expiry_timestamp = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-
-# Convert keys to PEM format
 private_pem = private_key.private_bytes(
     encoding=serialization.Encoding.PEM,
     format=serialization.PrivateFormat.PKCS8,
     encryption_algorithm=serialization.NoEncryption()
-).decode("utf-8")
+).decode()
+
 public_pem = public_key.public_bytes(
     encoding=serialization.Encoding.PEM,
     format=serialization.PublicFormat.SubjectPublicKeyInfo
-).decode("utf-8")
+).decode()
 
 # Serve JWKS formatted keys
-@app.route('/jwks')
+
+# Create a JWKS (JSON Web Key Set)
+jwk = {
+    "kid": "my-key-id",
+    "alg": "RS256",
+    "kty": "RSA",
+    "use": "sig",
+    "n": public_key.public_numbers().n,
+    "e": public_key.public_numbers().e,
+}
+@app.route('/.well-known/jwks.json', methods=['GET'])
 def jwks():
-    if datetime.datetime.utcnow() < expiry_timestamp:
-        jwks_data = {
-            "keys": [
-                {
-                    "kid": key_id,
-                    "kty": "RSA",
-                    "alg": "RS256",
-                    "use": "sig",
-                    "n": public_key.public_numbers().n,
-                    "e": public_key.public_numbers().e
-                }
-            ]
-        }
-        return jsonify(jwks_data)
-    else:
-        return "Key has expired", 404
+    return jsonify(keys=[jwk])
 
 # Handle JWT issuance
 @app.route('/auth', methods=['POST'])
 def auth():
-    expired = request.args.get('expired')
-    if expired:
-        key_to_use = private_key
-        expiry_to_use = expiry_timestamp
-    else:
-        key_to_use = public_key
-        expiry_to_use = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-
-    payload = {'some': 'payload'}
-    token = jwt.encode(payload, key_to_use, algorithm='RS256', 
-headers={'kid': key_id, 'exp': expiry_to_use})
-    return token
+    username = request.json.get('username')
+    password = request.json.get('password')
+    
+    # Check username and password (mock authentication)
+    if username == "userABC" and password == "password123":
+        # Generate a JWT with the current key
+        now = datetime.datetime.utcnow()
+        payload = {
+            "sub": username,
+            "iat": now,
+            "exp": now + datetime.timedelta(minutes=15),
+            "iss": "your-issuer",
+            "aud": "your-audience",
+            "kid": "my-key-id"
+        }
+        token = jwt.encode(payload, private_pem, algorithm='RS256')
+        
+        return jsonify(token=token.decode('utf-8'))
+    
+    return "Authentication failed", 401
 
 if __name__ == '__main__':
     app.run(port=8080)
